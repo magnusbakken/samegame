@@ -2,11 +2,12 @@
 module Main exposing (..)
 
 import Browser
-import Html exposing (Html, button, div, text)
-import Html.Attributes exposing (class)
+import Html exposing (Html, Attribute, div, text)
+import Html.Attributes exposing (style, class)
 import Html.Events exposing (onClick)
 import Random
 
+main : Program () Model Msg
 main = Browser.element {
     init = init,
     update = update,
@@ -16,18 +17,22 @@ main = Browser.element {
 
 -- Model
 
+tableHeight : Int
 tableHeight = 10
+
+tableWidth : Int
 tableWidth = 20
 
-type Color = Red | Green | Blue | Yellow | Empty
+type CellColor = Red | Green | Blue | Yellow | Empty
 
 type alias Model = {
-    colors : List (List Color)
+    colors : List (List CellColor)
     }
 
 type Msg =
     RandomizeColors |
-    SetColors (List (List Color))
+    SetColors (List (List CellColor)) |
+    ClickColor Int Int
 
 init : () -> (Model, Cmd Msg)
 init _ = update RandomizeColors (Model (List.repeat tableHeight (List.repeat tableWidth Empty)))
@@ -45,8 +50,12 @@ update msg model =
         Model colors,
         Cmd.none
         )
+    ClickColor x y -> (
+        model,
+        Cmd.none
+        )
 
-randomColor : Random.Generator Color
+randomColor : Random.Generator CellColor
 randomColor = Random.uniform Red [Green, Blue, Yellow]
 
 splitList : Int -> List a -> List (List a)
@@ -54,35 +63,54 @@ splitList len l = case l of
     [] -> []
     list -> List.take len list :: splitList len (List.drop len list)
 
-makeTable : Int -> Int -> List Color -> List (List Color)
-makeTable height width list = splitList width list
+makeTable : Int -> List CellColor -> List (List CellColor)
+makeTable width list = splitList width list
 
-randomColors : Int -> Int -> Random.Generator (List (List Color))
-randomColors height width = Random.map (makeTable height width) (Random.list (height * width) randomColor)
+randomColors : Int -> Int -> Random.Generator (List (List CellColor))
+randomColors height width = Random.map (makeTable width) (Random.list (height * width) randomColor)
 
 -- Subscriptions
 
 subscriptions : Model -> Sub Msg
-subscriptions model = Sub.none
+subscriptions _ = Sub.none
 
 -- View
 
 view : Model -> Html Msg
 view model = fullTable model.colors
 
-colorClass : Color -> String
-colorClass color = case color of
+colorName : CellColor -> String
+colorName color = case color of
     Red -> "red"
     Green -> "green"
     Blue -> "blue"
     Yellow -> "yellow"
-    Empty -> "empty"
+    Empty -> "white"
 
-tableCell : Color -> Html Msg
-tableCell color = div [ class "cell", class (colorClass color) ] [ text "" ]
+cellStyles : CellColor -> List (String, String)
+cellStyles color = [
+    ("width", "40px"),
+    ("height", "40px"),
+    ("background-color", colorName color),
+    ("border-width", "2px"),
+    ("border-color", colorName color),
+    ("border-style", "groove")
+    ]
 
-tableRow : List Color -> Html Msg
-tableRow colors = div [ class "row" ] (List.map tableCell colors)
+combineStyles : List (String, String) -> List (Attribute Msg)
+combineStyles styles = List.map (\(key, value) -> style key value) styles
 
-fullTable : List (List Color) -> Html Msg
-fullTable allColors = div [ class "game" ] (List.map tableRow allColors)
+clickHandler : Int -> Int -> Attribute Msg
+clickHandler x y = onClick (ClickColor x y)
+
+tableCell : Int -> Int -> CellColor -> Html Msg
+tableCell x y color = div ((clickHandler x y) :: combineStyles (cellStyles color)) [ text "" ]
+
+getRows : Int -> List CellColor -> List (Html Msg)
+getRows y colors = List.indexedMap (\x color -> tableCell x y color) colors
+
+tableRow : Int -> List CellColor -> Html Msg
+tableRow y colors = div (combineStyles [("display", "flex")]) (getRows y colors)
+
+fullTable : List (List CellColor) -> Html Msg
+fullTable allColors = div [ class "game" ] (List.indexedMap (\y color -> (tableRow y color)) allColors)
