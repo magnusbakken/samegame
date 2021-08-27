@@ -51,7 +51,7 @@ update msg model =
         Cmd.none
         )
     ClickColor x y -> (
-        model,
+        recalculate x y model,
         Cmd.none
         )
 
@@ -68,6 +68,27 @@ makeTable width list = splitList width list
 
 randomColors : Int -> Int -> Random.Generator (List (List CellColor))
 randomColors height width = Random.map (makeTable width) (Random.list (height * width) randomColor)
+
+at :  Int -> List a -> Maybe a
+at n xs = List.head (List.drop n xs)
+
+getColor : Int -> Int -> Model -> CellColor
+getColor x y { colors } = Maybe.withDefault Empty (Maybe.andThen (at x) (at y colors))
+
+aboveIsSame : Int -> Int -> CellColor -> Model -> Bool
+aboveIsSame x y color model = if y == 0 then False else color == getColor x (y-1) model
+
+findEqualNeighbors : Int -> Int -> Model -> List (Int, Int)
+findEqualNeighbors x y model =
+    let color = getColor x y model
+        above = aboveIsSame x y color model in
+    if above then [(x, y-1)] else []
+
+recalculate : Int -> Int -> Model -> Model
+recalculate x y model =
+    let neighbors = findEqualNeighbors x y model
+        output = Debug.log "neighbors" neighbors in
+    model
 
 -- Subscriptions
 
