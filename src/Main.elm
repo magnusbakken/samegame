@@ -9,6 +9,8 @@ import Random
 import Set exposing (Set)
 import List.Extra exposing (unique)
 import Html exposing (a)
+import Task
+import Time
 
 main : Program () Model Msg
 main = Browser.element {
@@ -37,7 +39,9 @@ type alias Model = {
 type Msg =
     RandomizeColors |
     SetColors (List (List CellColor)) |
-    ClickColor Int Int
+    ClickColor Int Int |
+    RemoveCells (List (Int, Int)) |
+    ApplyGravity
 
 createEmptyModel : Int -> Int -> Model
 createEmptyModel width height = {
@@ -63,7 +67,15 @@ update msg model =
         Cmd.none
         )
     ClickColor x y -> (
-        recalculate x y model,
+        model,
+        recalculate x y model
+        )
+    RemoveCells cells -> (
+        removeCells model cells,
+        Task.perform (\_ -> ApplyGravity) Time.here
+        )
+    ApplyGravity -> (
+        applyGravity model,
         Cmd.none
         )
 
@@ -128,12 +140,37 @@ findEqualNeighbors color model found seen =
         then List.concat [found, (findEqualNeighbors color model sameColor allSeen)]
         else found
 
-recalculate : Int -> Int -> Model -> Model
+handleNeighbors : List (Int, Int) -> Cmd Msg 
+handleNeighbors cells =
+    if List.length cells > 1
+    then Task.perform (\_ -> RemoveCells cells) Time.here
+    else Cmd.none
+
+recalculate : Int -> Int -> Model -> Cmd Msg
 recalculate x y model =
     let color = getColor x y model
-        neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y))
-        output = Debug.log "neighbors" neighbors in
-    model
+        neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y)) in
+    handleNeighbors neighbors
+
+removeCell : Int -> Int -> Model -> Model
+removeCell x y model = case at y model.colors of
+    Nothing -> model
+    Just originalRow -> let updatedColors = List.Extra.setAt y (List.Extra.setAt x Empty originalRow) model.colors in
+        { model | colors = updatedColors }
+
+removeCells : Model -> List (Int, Int) -> Model
+removeCells model cells = case cells of
+   [] -> model
+   ((x, y) :: xs) -> removeCells (removeCell x y model) xs
+
+removeEmptyColumns : Model -> Model
+removeEmptyColumns model = model
+
+fillEmptyCellsVertically : Model -> Model
+fillEmptyCellsVertically model = model
+
+applyGravity : Model -> Model
+applyGravity model = removeEmptyColumns (fillEmptyCellsVertically model)
 
 -- Subscriptions
 
@@ -160,7 +197,8 @@ cellStyles color = [
     ("background-color", colorName color),
     ("border-width", "2px"),
     ("border-color", colorName color),
-    ("border-style", "groove")
+    ("border-style", "groove"),
+    ("cursor", "pointer")
     ]
 
 combineStyles : List (String, String) -> List (Attribute Msg)
