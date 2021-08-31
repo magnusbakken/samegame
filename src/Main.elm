@@ -6,6 +6,9 @@ import Html exposing (Html, Attribute, div, text)
 import Html.Attributes exposing (style, class)
 import Html.Events exposing (onClick)
 import Random
+import Set exposing (Set)
+import List.Extra exposing (unique)
+import Html exposing (a)
 
 main : Program () Model Msg
 main = Browser.element {
@@ -26,6 +29,8 @@ tableWidth = 20
 type CellColor = Red | Green | Blue | Yellow | Empty
 
 type alias Model = {
+    width: Int,
+    height: Int,
     colors : List (List CellColor)
     }
 
@@ -34,8 +39,15 @@ type Msg =
     SetColors (List (List CellColor)) |
     ClickColor Int Int
 
+createEmptyModel : Int -> Int -> Model
+createEmptyModel width height = {
+    width = width,
+    height = height,
+    colors = (List.repeat height (List.repeat width Empty))
+    }
+
 init : () -> (Model, Cmd Msg)
-init _ = update RandomizeColors (Model (List.repeat tableHeight (List.repeat tableWidth Empty)))
+init _ = update RandomizeColors (createEmptyModel tableWidth tableHeight)
 
 -- Update
 
@@ -47,7 +59,7 @@ update msg model =
         Random.generate SetColors (randomColors tableHeight tableWidth)
         )
     SetColors colors -> (
-        Model colors,
+        { model | colors = colors },
         Cmd.none
         )
     ClickColor x y -> (
@@ -75,18 +87,51 @@ at n xs = List.head (List.drop n xs)
 getColor : Int -> Int -> Model -> CellColor
 getColor x y { colors } = Maybe.withDefault Empty (Maybe.andThen (at x) (at y colors))
 
-aboveIsSame : Int -> Int -> CellColor -> Model -> Bool
-aboveIsSame x y color model = if y == 0 then False else color == getColor x (y-1) model
+type Direction = Up | Right | Down | Left
 
-findEqualNeighbors : Int -> Int -> Model -> List (Int, Int)
-findEqualNeighbors x y model =
-    let color = getColor x y model
-        above = aboveIsSame x y color model in
-    if above then [(x, y-1)] else []
+getDirectionCoords : Int -> Int -> Model -> Direction -> Maybe (Int, Int)
+getDirectionCoords x y model direction = case direction of
+    Up -> if x == 0 then Nothing else Just (x, y-1)
+    Right -> if x == model.width - 1 then Nothing else Just (x+1, y)
+    Down -> if y == model.height - 1 then Nothing else Just (x, y+1)
+    Left -> if x == 0 then Nothing else Just (x-1, y)
+
+catMaybes : List (Maybe a) -> List a
+catMaybes ms =
+    case ms of
+        [] -> []
+        (m :: xs) -> case m of
+           Nothing -> catMaybes xs
+           Just x -> x :: catMaybes xs
+
+getCellNeighbors : Int -> Int -> Model -> List (Int, Int)
+getCellNeighbors x y model = catMaybes [
+    getDirectionCoords x y model Up,
+    getDirectionCoords x y model Right,
+    getDirectionCoords x y model Down,
+    getDirectionCoords x y model Left
+    ]
+
+getAllNeighbors : Model -> List (Int, Int) -> List (Int, Int)
+getAllNeighbors model cells =
+    let neighborLists = List.map (\(x, y) -> getCellNeighbors x y model) cells
+        neighbors = List.concat neighborLists in
+    List.Extra.unique neighbors
+
+findEqualNeighbors : CellColor -> Model -> List (Int, Int) -> Set (Int, Int) -> List (Int, Int)
+findEqualNeighbors color model found seen =
+    let neighbors = getAllNeighbors model found
+        allSeen = Set.union seen (Set.fromList neighbors)
+        unseenNeighbors = List.filter (\cell -> not (Set.member cell seen)) neighbors
+        sameColor = List.filter (\(x, y) -> getColor x y model == color) unseenNeighbors in
+        if List.length sameColor > 0
+        then List.concat [found, (findEqualNeighbors color model sameColor allSeen)]
+        else found
 
 recalculate : Int -> Int -> Model -> Model
 recalculate x y model =
-    let neighbors = findEqualNeighbors x y model
+    let color = getColor x y model
+        neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y))
         output = Debug.log "neighbors" neighbors in
     model
 
