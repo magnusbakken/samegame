@@ -7,8 +7,7 @@ import Html.Attributes exposing (style, class)
 import Html.Events exposing (onClick)
 import Random
 import Set exposing (Set)
-import List.Extra exposing (unique)
-import Html exposing (a)
+import List.Extra
 import Task
 import Time
 
@@ -103,10 +102,10 @@ type Direction = Up | Right | Down | Left
 
 getDirectionCoords : Int -> Int -> Model -> Direction -> Maybe (Int, Int)
 getDirectionCoords x y model direction = case direction of
-    Up -> if x == 0 then Nothing else Just (x, y-1)
-    Right -> if x == model.width - 1 then Nothing else Just (x+1, y)
-    Down -> if y == model.height - 1 then Nothing else Just (x, y+1)
-    Left -> if x == 0 then Nothing else Just (x-1, y)
+    Up -> if y < 1 then Nothing else Just (x, y-1)
+    Right -> if x > model.width - 1 then Nothing else Just (x+1, y)
+    Down -> if y > model.height - 1 then Nothing else Just (x, y+1)
+    Left -> if x < 1 then Nothing else Just (x-1, y)
 
 catMaybes : List (Maybe a) -> List a
 catMaybes ms =
@@ -163,8 +162,41 @@ removeCells model cells = case cells of
    [] -> model
    ((x, y) :: xs) -> removeCells (removeCell x y model) xs
 
+columnIsEmpty : Int -> Model -> Bool
+columnIsEmpty x model =
+    let indices = List.range 0 (model.width - 1)
+        colors = List.map (\y -> getColor x y model) indices in
+    List.all (\color -> color == Empty) colors
+
+removeCellAndSlideLeft : Int -> List CellColor -> List CellColor
+removeCellAndSlideLeft x colors = List.concat [
+    List.take x colors,
+    List.drop (x+1) colors,
+    [Empty]
+    ]
+
+removeColumn : Int -> Model -> Model
+removeColumn x model = { model |
+    colors = List.map (removeCellAndSlideLeft x) model.colors 
+    }
+
+hasLaterNonEmptyColumns : Int -> Model -> Bool
+hasLaterNonEmptyColumns x model = List.any (\idx -> not (columnIsEmpty idx model)) (List.range (x+1) (model.width - 1))
+
+removeColumnIfEmpty : Int -> Model -> Maybe Model
+removeColumnIfEmpty x model =
+    if (x < model.width) && (columnIsEmpty x model) && (hasLaterNonEmptyColumns x model)
+    then Just (removeColumn x model)
+    else Nothing
+
+removeFirstEmptyColumn : Int -> Int -> Model -> Model
+removeFirstEmptyColumn x numRemoved model =
+    case removeColumnIfEmpty x model of
+       Nothing -> if x == model.width - 1 - numRemoved then model else removeFirstEmptyColumn (x+1) numRemoved model
+       Just updatedModel -> removeFirstEmptyColumn x (numRemoved+1) updatedModel
+
 removeEmptyColumns : Model -> Model
-removeEmptyColumns model = model
+removeEmptyColumns model = removeFirstEmptyColumn 0 0 model
 
 fillEmptyCellsVertically : Model -> Model
 fillEmptyCellsVertically model = model
