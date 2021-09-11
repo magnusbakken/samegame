@@ -1,9 +1,10 @@
 module Main exposing (..)
 
 import Browser
-import Html exposing (Html, Attribute, div, text)
-import Html.Attributes exposing (style, class)
-import Html.Events exposing (onClick)
+import Html
+import Html.Styled exposing (..)
+import Html.Styled.Events exposing (onClick)
+import Css exposing (..)
 import Set exposing (Set)
 import Random
 import List.Extra
@@ -16,7 +17,7 @@ main = Browser.element {
     init = init,
     update = update,
     subscriptions = subscriptions,
-    view = view
+    view = view >> toUnstyled
     }
 
 -- Model
@@ -72,7 +73,7 @@ update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     RandomizeColors -> (
-        model,
+        createEmptyModel tableWidth tableHeight,
         Random.generate SetColors (randomColors model.height model.width)
         )
     SetColors colors -> (
@@ -287,104 +288,128 @@ subscriptions _ = Sub.none
 view : Model -> Html Msg
 view model = pageContainer model
 
-combineStyles : List (String, String) -> List (Attribute Msg)
-combineStyles styles = List.map (\(key, value) -> style key value) styles
-
-colorName : CellColor -> String
+colorName : CellColor -> Color
 colorName color = case color of
-    Red -> "red"
-    Green -> "green"
-    Blue -> "blue"
-    Yellow -> "yellow"
-    Empty -> "white"
+    Red -> rgb 255 0 0
+    Green -> rgb 0 128 0
+    Blue -> rgb 0 0 255
+    Yellow -> rgb 255 255 0
+    Empty -> rgb 255 255 255
 
-borderColorName : CellColor -> String
+borderColorName : CellColor -> Color
 borderColorName color = case color of
-    Red -> "darkred"
-    Green -> "darkgreen"
-    Blue -> "darkblue"
-    Yellow -> "olive"
-    Empty -> "white"
+    Red -> rgb 139 0 0
+    Green -> rgb 0 100 0
+    Blue -> rgb 0 0 139
+    Yellow -> rgb 128 128 0
+    Empty -> rgb 255 255 255
 
-cellStyles : CellColor -> List (String, String)
+cellStyles : CellColor -> List Style
 cellStyles color = [
-    ("width", "40px"),
-    ("height", "40px"),
-    ("background-color", colorName color),
-    ("border", "2px solid " ++ borderColorName color),
-    ("cursor", "pointer")
+    width (px 40),
+    height (px 40),
+    backgroundColor (colorName color),
+    border3 (px 2) solid (borderColorName color),
+    cursor pointer
     ]
 
-clickHandler : Int -> Int -> Attribute Msg
-clickHandler x y = onClick (ClickColor x y)
+cellClickHandler : Int -> Int -> Attribute Msg
+cellClickHandler x y = onClick (ClickColor x y)
 
 tableCell : Int -> Int -> CellColor -> Html Msg
-tableCell x y color = div ((clickHandler x y) :: combineStyles (cellStyles color)) [ text "" ]
+tableCell x y color = styled div (cellStyles color) [cellClickHandler x y] [ text "" ]
 
 getRows : Int -> List CellColor -> List (Html Msg)
 getRows y colors = List.indexedMap (\x color -> tableCell x y color) colors
 
 tableRow : Int -> List CellColor -> Html Msg
-tableRow y colors = div (combineStyles [("display", "flex")]) (getRows y colors)
+tableRow y colors = styled div [displayFlex] [] (getRows y colors)
 
-tableStyles : List (String, String)
+tableStyles : List Style
 tableStyles = [
-    ("border", "1px solid black"),
-    ("padding", "5px"),
-    ("background-color", "white")
+    border3 (px 1) solid (rgb 0 0 0),
+    padding (px 5),
+    backgroundColor (rgb 255 255 255)
     ]
 
 fullTable : List (List CellColor) -> Html Msg
-fullTable allColors = div (combineStyles tableStyles) (List.indexedMap (\y color -> (tableRow y color)) allColors)
+fullTable allColors = styled div tableStyles [] (List.indexedMap (\y color -> (tableRow y color)) allColors)
 
 gameTitle : Html Msg
-gameTitle = div [style "font-size" "40px"] [text "SameGame"]
+gameTitle = styled div [fontSize (px 40)] [] [text "SameGame"]
 
-scoreContainerStyles : List (String, String)
+restartButtonStyles : List Style
+restartButtonStyles = [
+    marginLeft (px 10),
+    backgroundColor (hex "#FAFBFC"),
+    border3 (px 1) solid (rgba 27 31 35 0.15),
+    borderRadius (px 6),
+    color (hex "#24292E"),
+    cursor pointer,
+    fontSize (px 14),
+    lineHeight (px 20),
+    padding2 (px 6) (px 16),
+    property "transition" "background-color 0.2s cubic-bezier(0.3, 0, 0.5, 1)"
+    ]
+
+restartButtonHoverStyle : Style
+restartButtonHoverStyle = hover [
+    backgroundColor (hex "#F3F4F6"),
+    property "transition-duration" "0.1s"
+    ]
+    
+
+restartClickHandler : Attribute Msg
+restartClickHandler = onClick RandomizeColors
+
+restartButton : Html Msg
+restartButton = styled button (restartButtonHoverStyle :: restartButtonStyles) [restartClickHandler] [text "Restart"]
+
+scoreContainerStyles : List Style
 scoreContainerStyles = [
-    ("margin-left", "auto"),
-    ("margin-top", "auto"),
-    ("padding", "2px")
+    marginLeft auto,
+    marginTop auto,
+    padding (px 2)
     ]
 
 scoreContainer : Model -> Html Msg
 scoreContainer model =
     let scoreText = "Score: " ++ String.fromInt model.score
         fullText = if model.state == GameOver then scoreText ++ " (game over)" else scoreText in
-    div (combineStyles scoreContainerStyles) [text fullText]
+    styled div scoreContainerStyles [] [text fullText, restartButton]
 
-headerStyles : List (String, String)
+headerStyles : List Style
 headerStyles = [
-    ("display", "flex"),
-    ("flex-direction", "row"),
-    ("color", "white")
+    displayFlex,
+    flexDirection row,
+    color (rgb 255 255 255)
     ]
 
 header : Model -> Html Msg
-header model = div (combineStyles headerStyles) [gameTitle, scoreContainer model]
+header model = styled div headerStyles [] [gameTitle, scoreContainer model]
 
-gameContainerStyles : List (String, String)
+gameContainerStyles : List Style
 gameContainerStyles = [
-    ("display", "flex"),
-    ("flex-direction", "column")
+    displayFlex,
+    flexDirection column
     ]
 
 gameContainer : Model -> Html Msg
-gameContainer model = div (combineStyles gameContainerStyles) [
+gameContainer model = styled div gameContainerStyles [] [
     header model,
     fullTable model.colors
     ]
 
-pageContainerStyles : List (String, String)
+pageContainerStyles : List Style
 pageContainerStyles = [
-    ("width", "100vw"),
-    ("height", "100vh"),
-    ("display", "flex"),
-    ("justify-content", "center"),
-    ("align-items", "center"),
-    ("background-color", "#202020"),
-    ("font-family", "helvetica")
+    width (vw 100),
+    height (vh 100),
+    displayFlex,
+    justifyContent center,
+    alignItems center,
+    backgroundColor (hex "#202020"),
+    fontFamilies ["Helvetica", "sans-serif"]
     ]
 
 pageContainer : Model -> Html Msg
-pageContainer model = div (combineStyles pageContainerStyles) [gameContainer model]
+pageContainer model = styled div pageContainerStyles [] [gameContainer model]
