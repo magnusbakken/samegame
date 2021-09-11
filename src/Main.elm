@@ -1,15 +1,15 @@
--- https://www.crazygames.com/game/same-game
 module Main exposing (..)
 
 import Browser
 import Html exposing (Html, Attribute, div, text)
 import Html.Attributes exposing (style, class)
 import Html.Events exposing (onClick)
-import Random
 import Set exposing (Set)
+import Random
 import List.Extra
 import Process
 import Task
+import Time
 
 main : Program () Model Msg
 main = Browser.element {
@@ -29,11 +29,14 @@ tableWidth = 20
 
 type CellColor = Red | Green | Blue | Yellow | Empty
 
+type GameState = Ready | Busy | GameOver
+
 type alias Model = {
     width: Int,
     height: Int,
-    colors : List (List CellColor),
-    score: Int
+    colors: List (List CellColor),
+    score: Int,
+    state: GameState
     }
 
 type Msg =
@@ -42,14 +45,16 @@ type Msg =
     ClickColor Int Int |
     RemoveCells (List (Int, Int)) |
     ApplyVerticalGravity |
-    ApplyHorizontalGravity
+    ApplyHorizontalGravity |
+    CheckGameState
 
 createEmptyModel : Int -> Int -> Model
 createEmptyModel width height = {
     width = width,
     height = height,
     colors = (List.repeat height (List.repeat width Empty)),
-    score = 0
+    score = 0,
+    state = Busy
     }
 
 init : () -> (Model, Cmd Msg)
@@ -59,23 +64,23 @@ init _ = update RandomizeColors (createEmptyModel tableWidth tableHeight)
 
 delay : Float -> msg -> Cmd msg
 delay time msg =
-  Process.sleep time
-  |> Task.andThen (always <| Task.succeed msg)
-  |> Task.perform identity
+    Process.sleep time
+    |> Task.andThen (always <| Task.succeed msg)
+    |> Task.perform identity
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     RandomizeColors -> (
         model,
-        Random.generate SetColors (randomColors tableHeight tableWidth)
+        Random.generate SetColors (randomColors model.height model.width)
         )
     SetColors colors -> (
-        { model | colors = colors },
+        { model | colors = colors, state = Ready },
         Cmd.none
         )
     ClickColor x y -> (
-        model,
+        { model | state = Busy },
         clickColor x y model
         )
     RemoveCells cells -> (
@@ -88,6 +93,10 @@ update msg model =
         )
     ApplyHorizontalGravity -> (
         applyHorizontalGravity model,
+        Task.perform (\x -> CheckGameState) Time.here
+        )
+    CheckGameState -> (
+        checkGameState model,
         Cmd.none
         )
 
@@ -152,6 +161,13 @@ findEqualNeighbors color model found seen =
         then List.concat [found, (findEqualNeighbors color model sameColor allSeen)]
         else found
 
+hasEqualNeighbors : Int -> Int -> Model -> Bool
+hasEqualNeighbors x y model =
+    let color = getColor x y model
+        neighbors = getCellNeighbors x y model
+        neighborColors = List.map (\(otherX, otherY) -> getColor otherX otherY model) neighbors in
+    color /= Empty && List.any (\otherColor -> color == otherColor) neighborColors
+
 clickColorGraph : List (Int, Int) -> Cmd Msg 
 clickColorGraph cells =
     if List.length cells > 1
@@ -159,10 +175,13 @@ clickColorGraph cells =
     else Cmd.none
 
 clickColor : Int -> Int -> Model -> Cmd Msg
-clickColor x y model =
-    let color = getColor x y model
-        neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y)) in
-    clickColorGraph neighbors
+clickColor x y model = case model.state of
+    Busy -> Task.perform (\_ -> CheckGameState) Time.now
+    GameOver -> Cmd.none
+    Ready -> let color = getColor x y model in
+             if color == Empty
+             then Cmd.none
+             else clickColorGraph (findEqualNeighbors color model [(x, y)] (Set.singleton (x, y)))
 
 updateCell : Int -> Int -> CellColor -> Model -> Model
 updateCell x y color model = case at y model.colors of
@@ -177,12 +196,6 @@ removeCells : Model -> List (Int, Int) -> Model
 removeCells model cells = case cells of
    [] -> model
    ((x, y) :: xs) -> removeCells (removeCell x y model) xs
-
-getScore : List (Int, Int) -> Int
-getScore list = (List.length list - 1) ^ 2
-
-updateScore : Model -> List (Int, Int) -> Model
-updateScore model cells = { model | score = model.score + getScore cells }
 
 getColumn : Int -> Model -> List CellColor
 getColumn x model =
@@ -233,8 +246,8 @@ getContractedColumn x model =
         nonEmpty = List.filter (\color -> color /= Empty) column
         emptyCount = model.height - List.length nonEmpty in
     if emptyCount == 0
-    then Debug.log ("nothing to remove in " ++ String.fromInt x) Nothing
-    else Debug.log (String.fromInt emptyCount ++ " empty in " ++ String.fromInt x) Just (List.concat [List.repeat emptyCount Empty, nonEmpty])
+    then Nothing
+    else Just (List.concat [List.repeat emptyCount Empty, nonEmpty])
 
 contractColumn : Int -> Model -> Model
 contractColumn x model =
@@ -245,6 +258,25 @@ contractColumn x model =
 applyVerticalGravity : Model -> Model
 applyVerticalGravity model = List.foldl contractColumn model (List.range 0 (model.width - 1))
 
+getScore : List (Int, Int) -> Int
+getScore list = (List.length list - 1) ^ 2
+
+updateScore : Model -> List (Int, Int) -> Model
+updateScore model cells = { model | score = model.score + getScore cells }
+
+isGameOver : Model -> Bool
+isGameOver model =
+    let xs = List.range 0 (model.width - 1)
+        ys = List.range 0 (model.height - 1)
+        indices = List.concatMap (\y -> List.concatMap (\x -> [(x, y)]) xs) ys in
+    not (List.any (\(x, y) -> hasEqualNeighbors x y model) indices)
+
+checkGameState : Model -> Model
+checkGameState model =
+    if isGameOver model
+    then { model | state = GameOver }
+    else { model | state = Ready }
+
 -- Subscriptions
 
 subscriptions : Model -> Sub Msg
@@ -254,6 +286,9 @@ subscriptions _ = Sub.none
 
 view : Model -> Html Msg
 view model = pageContainer model
+
+combineStyles : List (String, String) -> List (Attribute Msg)
+combineStyles styles = List.map (\(key, value) -> style key value) styles
 
 colorName : CellColor -> String
 colorName color = case color of
@@ -279,9 +314,6 @@ cellStyles color = [
     ("border", "2px solid " ++ borderColorName color),
     ("cursor", "pointer")
     ]
-
-combineStyles : List (String, String) -> List (Attribute Msg)
-combineStyles styles = List.map (\(key, value) -> style key value) styles
 
 clickHandler : Int -> Int -> Attribute Msg
 clickHandler x y = onClick (ClickColor x y)
@@ -315,8 +347,11 @@ scoreContainerStyles = [
     ("padding", "2px")
     ]
 
-scoreContainer : Int -> Html Msg
-scoreContainer score = div (combineStyles scoreContainerStyles) [text ("Score: " ++ String.fromInt score)]
+scoreContainer : Model -> Html Msg
+scoreContainer model =
+    let scoreText = "Score: " ++ String.fromInt model.score
+        fullText = if model.state == GameOver then scoreText ++ " (game over)" else scoreText in
+    div (combineStyles scoreContainerStyles) [text fullText]
 
 headerStyles : List (String, String)
 headerStyles = [
@@ -325,8 +360,8 @@ headerStyles = [
     ("color", "white")
     ]
 
-header : Int -> Html Msg
-header score = div (combineStyles headerStyles) [gameTitle, scoreContainer score]
+header : Model -> Html Msg
+header model = div (combineStyles headerStyles) [gameTitle, scoreContainer model]
 
 gameContainerStyles : List (String, String)
 gameContainerStyles = [
@@ -336,7 +371,7 @@ gameContainerStyles = [
 
 gameContainer : Model -> Html Msg
 gameContainer model = div (combineStyles gameContainerStyles) [
-    header model.score,
+    header model,
     fullTable model.colors
     ]
 
