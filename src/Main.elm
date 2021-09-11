@@ -32,7 +32,8 @@ type CellColor = Red | Green | Blue | Yellow | Empty
 type alias Model = {
     width: Int,
     height: Int,
-    colors : List (List CellColor)
+    colors : List (List CellColor),
+    score: Int
     }
 
 type Msg =
@@ -47,7 +48,8 @@ createEmptyModel : Int -> Int -> Model
 createEmptyModel width height = {
     width = width,
     height = height,
-    colors = (List.repeat height (List.repeat width Empty))
+    colors = (List.repeat height (List.repeat width Empty)),
+    score = 0
     }
 
 init : () -> (Model, Cmd Msg)
@@ -74,11 +76,11 @@ update msg model =
         )
     ClickColor x y -> (
         model,
-        recalculate x y model
+        clickColor x y model
         )
     RemoveCells cells -> (
-        removeCells model cells,
-        delay 100 ApplyVerticalGravity
+        updateScore (removeCells model cells) cells,
+        delay 50 ApplyVerticalGravity
         )
     ApplyVerticalGravity -> (
         applyVerticalGravity model,
@@ -150,17 +152,17 @@ findEqualNeighbors color model found seen =
         then List.concat [found, (findEqualNeighbors color model sameColor allSeen)]
         else found
 
-handleNeighbors : List (Int, Int) -> Cmd Msg 
-handleNeighbors cells =
+clickColorGraph : List (Int, Int) -> Cmd Msg 
+clickColorGraph cells =
     if List.length cells > 1
     then delay 100 (RemoveCells cells)
     else Cmd.none
 
-recalculate : Int -> Int -> Model -> Cmd Msg
-recalculate x y model =
+clickColor : Int -> Int -> Model -> Cmd Msg
+clickColor x y model =
     let color = getColor x y model
         neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y)) in
-    handleNeighbors neighbors
+    clickColorGraph neighbors
 
 updateCell : Int -> Int -> CellColor -> Model -> Model
 updateCell x y color model = case at y model.colors of
@@ -175,6 +177,12 @@ removeCells : Model -> List (Int, Int) -> Model
 removeCells model cells = case cells of
    [] -> model
    ((x, y) :: xs) -> removeCells (removeCell x y model) xs
+
+getScore : List (Int, Int) -> Int
+getScore list = (List.length list - 1) ^ 2
+
+updateScore : Model -> List (Int, Int) -> Model
+updateScore model cells = { model | score = model.score + getScore cells }
 
 getColumn : Int -> Model -> List CellColor
 getColumn x model =
@@ -245,7 +253,7 @@ subscriptions _ = Sub.none
 -- View
 
 view : Model -> Html Msg
-view model = gameContainer model.colors
+view model = pageContainer model
 
 colorName : CellColor -> String
 colorName color = case color of
@@ -297,15 +305,51 @@ tableStyles = [
 fullTable : List (List CellColor) -> Html Msg
 fullTable allColors = div (combineStyles tableStyles) (List.indexedMap (\y color -> (tableRow y color)) allColors)
 
-containerStyles : List (String, String)
-containerStyles = [
+gameTitle : Html Msg
+gameTitle = div [style "font-size" "40px"] [text "SameGame"]
+
+scoreContainerStyles : List (String, String)
+scoreContainerStyles = [
+    ("margin-left", "auto"),
+    ("margin-top", "auto"),
+    ("padding", "2px")
+    ]
+
+scoreContainer : Int -> Html Msg
+scoreContainer score = div (combineStyles scoreContainerStyles) [text ("Score: " ++ String.fromInt score)]
+
+headerStyles : List (String, String)
+headerStyles = [
+    ("display", "flex"),
+    ("flex-direction", "row"),
+    ("color", "white")
+    ]
+
+header : Int -> Html Msg
+header score = div (combineStyles headerStyles) [gameTitle, scoreContainer score]
+
+gameContainerStyles : List (String, String)
+gameContainerStyles = [
+    ("display", "flex"),
+    ("flex-direction", "column")
+    ]
+
+gameContainer : Model -> Html Msg
+gameContainer model = div (combineStyles gameContainerStyles) [
+    header model.score,
+    fullTable model.colors
+    ]
+
+pageContainerStyles : List (String, String)
+pageContainerStyles = [
     ("width", "100vw"),
     ("height", "100vh"),
     ("display", "flex"),
     ("justify-content", "center"),
     ("align-items", "center"),
-    ("background-color", "#202020")
+    ("background-color", "#202020"),
+    ("font-family", "helvetica")
     ]
 
-gameContainer : List (List CellColor) -> Html Msg
-gameContainer allColors = div (combineStyles containerStyles) [fullTable allColors]
+pageContainer : Model -> Html Msg
+pageContainer model = div (combineStyles pageContainerStyles) [gameContainer model]
