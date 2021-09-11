@@ -1,6 +1,8 @@
 # samegame
 An Elm implementation of the color matching game SameGame.
 
+You can try the game on the GitHub Pages site for this repository: https://magnusbakken.github.io/samegame/
+
 ## The game
 The game looks like this:
 ![samegame](https://user-images.githubusercontent.com/284189/132958297-1ac3f653-3d7f-4d61-a5d9-5a7f84764651.png)
