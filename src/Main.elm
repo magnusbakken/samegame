@@ -8,8 +8,8 @@ import Html.Events exposing (onClick)
 import Random
 import Set exposing (Set)
 import List.Extra
+import Process
 import Task
-import Time
 
 main : Program () Model Msg
 main = Browser.element {
@@ -55,6 +55,12 @@ init _ = update RandomizeColors (createEmptyModel tableWidth tableHeight)
 
 -- Update
 
+delay : Float -> msg -> Cmd msg
+delay time msg =
+  Process.sleep time
+  |> Task.andThen (always <| Task.succeed msg)
+  |> Task.perform identity
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
@@ -72,11 +78,11 @@ update msg model =
         )
     RemoveCells cells -> (
         removeCells model cells,
-        Task.perform (\_ -> ApplyVerticalGravity) Time.here
+        delay 100 ApplyVerticalGravity
         )
     ApplyVerticalGravity -> (
         applyVerticalGravity model,
-        Task.perform (\_ -> ApplyHorizontalGravity) Time.here
+        delay 100 ApplyHorizontalGravity
         )
     ApplyHorizontalGravity -> (
         applyHorizontalGravity model,
@@ -147,7 +153,7 @@ findEqualNeighbors color model found seen =
 handleNeighbors : List (Int, Int) -> Cmd Msg 
 handleNeighbors cells =
     if List.length cells > 1
-    then Task.perform (\_ -> RemoveCells cells) Time.here
+    then delay 100 (RemoveCells cells)
     else Cmd.none
 
 recalculate : Int -> Int -> Model -> Cmd Msg
@@ -239,7 +245,7 @@ subscriptions _ = Sub.none
 -- View
 
 view : Model -> Html Msg
-view model = fullTable model.colors
+view model = gameContainer model.colors
 
 colorName : CellColor -> String
 colorName color = case color of
@@ -281,5 +287,25 @@ getRows y colors = List.indexedMap (\x color -> tableCell x y color) colors
 tableRow : Int -> List CellColor -> Html Msg
 tableRow y colors = div (combineStyles [("display", "flex")]) (getRows y colors)
 
+tableStyles : List (String, String)
+tableStyles = [
+    ("border", "1px solid black"),
+    ("padding", "5px"),
+    ("background-color", "white")
+    ]
+
 fullTable : List (List CellColor) -> Html Msg
-fullTable allColors = div [ class "game" ] (List.indexedMap (\y color -> (tableRow y color)) allColors)
+fullTable allColors = div (combineStyles tableStyles) (List.indexedMap (\y color -> (tableRow y color)) allColors)
+
+containerStyles : List (String, String)
+containerStyles = [
+    ("width", "100vw"),
+    ("height", "100vh"),
+    ("display", "flex"),
+    ("justify-content", "center"),
+    ("align-items", "center"),
+    ("background-color", "#202020")
+    ]
+
+gameContainer : List (List CellColor) -> Html Msg
+gameContainer allColors = div (combineStyles containerStyles) [fullTable allColors]
