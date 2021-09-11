@@ -40,7 +40,8 @@ type Msg =
     SetColors (List (List CellColor)) |
     ClickColor Int Int |
     RemoveCells (List (Int, Int)) |
-    ApplyGravity
+    ApplyVerticalGravity |
+    ApplyHorizontalGravity
 
 createEmptyModel : Int -> Int -> Model
 createEmptyModel width height = {
@@ -71,10 +72,14 @@ update msg model =
         )
     RemoveCells cells -> (
         removeCells model cells,
-        Task.perform (\_ -> ApplyGravity) Time.here
+        Task.perform (\_ -> ApplyVerticalGravity) Time.here
         )
-    ApplyGravity -> (
-        applyGravity model,
+    ApplyVerticalGravity -> (
+        applyVerticalGravity model,
+        Task.perform (\_ -> ApplyHorizontalGravity) Time.here
+        )
+    ApplyHorizontalGravity -> (
+        applyHorizontalGravity model,
         Cmd.none
         )
 
@@ -151,22 +156,29 @@ recalculate x y model =
         neighbors = findEqualNeighbors color model [(x, y)] (Set.singleton (x, y)) in
     handleNeighbors neighbors
 
-removeCell : Int -> Int -> Model -> Model
-removeCell x y model = case at y model.colors of
+updateCell : Int -> Int -> CellColor -> Model -> Model
+updateCell x y color model = case at y model.colors of
     Nothing -> model
-    Just originalRow -> let updatedColors = List.Extra.setAt y (List.Extra.setAt x Empty originalRow) model.colors in
+    Just originalRow -> let updatedColors = List.Extra.setAt y (List.Extra.setAt x color originalRow) model.colors in
         { model | colors = updatedColors }
+
+removeCell : Int -> Int -> Model -> Model
+removeCell x y model = updateCell x y Empty model
 
 removeCells : Model -> List (Int, Int) -> Model
 removeCells model cells = case cells of
    [] -> model
    ((x, y) :: xs) -> removeCells (removeCell x y model) xs
 
-columnIsEmpty : Int -> Model -> Bool
-columnIsEmpty x model =
-    let indices = List.range 0 (model.width - 1)
-        colors = List.map (\y -> getColor x y model) indices in
-    List.all (\color -> color == Empty) colors
+getColumn : Int -> Model -> List CellColor
+getColumn x model =
+    let indices = List.range 0 (model.width - 1) in
+    List.map (\y -> getColor x y model) indices
+
+updateColumn : Int -> List CellColor -> Model -> Model
+updateColumn x newColumn model =
+    let indexedColors = (List.indexedMap (\y color -> (y, color)) newColumn) in
+    List.foldl (\(y, color) updatedModel -> updateCell x y color updatedModel) model indexedColors
 
 removeCellAndSlideLeft : Int -> List CellColor -> List CellColor
 removeCellAndSlideLeft x colors = List.concat [
@@ -179,6 +191,9 @@ removeColumn : Int -> Model -> Model
 removeColumn x model = { model |
     colors = List.map (removeCellAndSlideLeft x) model.colors 
     }
+
+columnIsEmpty : Int -> Model -> Bool
+columnIsEmpty x model = List.all (\color -> color == Empty) (getColumn x model)
 
 hasLaterNonEmptyColumns : Int -> Model -> Bool
 hasLaterNonEmptyColumns x model = List.any (\idx -> not (columnIsEmpty idx model)) (List.range (x+1) (model.width - 1))
@@ -195,14 +210,26 @@ removeFirstEmptyColumn x numRemoved model =
        Nothing -> if x == model.width - 1 - numRemoved then model else removeFirstEmptyColumn (x+1) numRemoved model
        Just updatedModel -> removeFirstEmptyColumn x (numRemoved+1) updatedModel
 
-removeEmptyColumns : Model -> Model
-removeEmptyColumns model = removeFirstEmptyColumn 0 0 model
+applyHorizontalGravity : Model -> Model
+applyHorizontalGravity model = removeFirstEmptyColumn 0 0 model
 
-fillEmptyCellsVertically : Model -> Model
-fillEmptyCellsVertically model = model
+getContractedColumn : Int -> Model -> Maybe (List CellColor)
+getContractedColumn x model =
+    let column = getColumn x model
+        nonEmpty = List.filter (\color -> color /= Empty) column
+        emptyCount = model.height - List.length nonEmpty in
+    if emptyCount == 0
+    then Debug.log ("nothing to remove in " ++ String.fromInt x) Nothing
+    else Debug.log (String.fromInt emptyCount ++ " empty in " ++ String.fromInt x) Just (List.concat [List.repeat emptyCount Empty, nonEmpty])
 
-applyGravity : Model -> Model
-applyGravity model = removeEmptyColumns (fillEmptyCellsVertically model)
+contractColumn : Int -> Model -> Model
+contractColumn x model =
+    case getContractedColumn x model of
+       Nothing -> model
+       Just contractedColumn -> updateColumn x contractedColumn model
+
+applyVerticalGravity : Model -> Model
+applyVerticalGravity model = List.foldl contractColumn model (List.range 0 (model.width - 1))
 
 -- Subscriptions
 
@@ -222,14 +249,20 @@ colorName color = case color of
     Yellow -> "yellow"
     Empty -> "white"
 
+borderColorName : CellColor -> String
+borderColorName color = case color of
+    Red -> "darkred"
+    Green -> "darkgreen"
+    Blue -> "darkblue"
+    Yellow -> "olive"
+    Empty -> "white"
+
 cellStyles : CellColor -> List (String, String)
 cellStyles color = [
     ("width", "40px"),
     ("height", "40px"),
     ("background-color", colorName color),
-    ("border-width", "2px"),
-    ("border-color", colorName color),
-    ("border-style", "groove"),
+    ("border", "2px solid " ++ borderColorName color),
     ("cursor", "pointer")
     ]
 
